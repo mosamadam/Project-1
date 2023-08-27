@@ -1,0 +1,455 @@
+---
+title: "STA5076Z Supervised Learning Assignment 3"
+author: "Adam Mosam (MSMADA002)"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  bookdown::pdf_document2
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(flextable)
+library(corrplot)
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+library(tidyverse)
+library(doParallel)
+library(caret)
+library(mltools)
+library(gridExtra)
+library(e1071)
+library(patchwork)
+library(magick)
+library(png)
+library(grid)
+library(h2o )
+
+
+knitr::opts_chunk$set(echo = F, message = F, include = T, warning=F)
+```
+
+\newpage
+# Introduction
+
+This report compares the performance of Support Vector Machines (SVM) and Neural Networks (NNs) in classifying handwritten digits as even or odd. The goal is to develop an accurate classification scheme for determining the parity of handwritten numbers. By examining implementation details, training processes and hyperparameter selection, this study identifies the strengths and weaknesses of each method. Insights gained from the performance analysis contribute to determining the suitability of SVM and NNs for this image recognition problem.
+
+## Dataset
+The dataset used in this study consists of handwritten digits represented as greyscale images with a resolution of 28 by 28 pixels. Each pixel in the image has a greyscale intensity value ranging from 0 to 255, with 0 representing black and 255 representing white. These intensity values capture the tone of the pixel, providing information about the shading and texture within the digit image. By analyzing the variations and distributions of pixel intensities across the image grid, the classification algorithms can learn to distinguish the even and odd digits effectively. A visual representation of the image format is shown in Figure \@ref(fig:fig1) for two observations from the dataset. 
+
+```{r q1a, echo= FALSE, fig.cap="Image of a handwritten digit represented on a 28x28 pixel grid." , fig.id='fig1', label='fig1', fig.height=3, eval = TRUE}
+
+#function for formatting tables
+FitFlextableToPage <- function(ft, pgwidth = 6){
+  ft_out <- ft %>% autofit() # Autofit the table
+  ft_out <- width(ft_out, width = dim(ft_out)$widths*pgwidth/(flextable_dim(ft_out)$widths)) # Adjust the width
+  return(ft_out)
+}
+
+#load dataset
+data <- read.csv("train_new.csv")
+
+# Specify the response and predictor variables
+response <- 1  # Replace with your response variable column index
+predictors <- 2:ncol(data)
+
+# Convert the response variable to a factor
+data[, response] <- as.factor(data[, response])
+
+# Create a data frame for the predictors and response
+df <- data[, c(predictors, response)]
+
+# Sample observations
+pixel_ratings <- as.numeric(df[8, -1])
+pixel_ratings2 <- as.numeric(df[9, -1])
+
+# Create a data frame with x, y, and pixel columns
+grid <- data.frame(
+  x = rep(1:28, 28),
+  y = rep(28:1, each = 28),
+  pixel_rating = pixel_ratings
+)
+
+grid2 <- data.frame(
+  x = rep(1:28, 28),
+  y = rep(28:1, each = 28),
+  pixel_rating = pixel_ratings2
+)
+
+# Generate the image plots
+plot1 <- ggplot(grid, aes(x = x, y = y, fill = pixel_rating)) +
+  geom_tile(width = 1, height = 1, color = "grey") +
+  scale_fill_gradient(low = "black", high = "white") +
+  theme_void() +
+  theme(legend.position = "none")
+
+plot2 <- ggplot(grid2, aes(x = x, y = y, fill = pixel_rating)) +
+  geom_tile(width = 1, height = 1, color = "grey") +
+  scale_fill_gradient(low = "black", high = "white") +
+  theme_void()
+
+# Display plots side by side
+plot1 + plot2 + plot_layout(ncol = 2)
+```
+
+The first column of the provided training dataset, "evenodd", represents the true label of each digit, indicating whether it is even or odd. The remaining columns, "pixle1" to "pixle784, represent the 28 by 28 grid. 
+
+# Methodology
+
+The process utilized for training the NN and SVM models in this investigation has been shaped by the constraints of limited computing power. Balancing model performance and simulation times, the following procedure has been proposed in Figure \@ref(fig:fig2).
+
+```{r q2b, echo= FALSE, fig.cap="Preprocessing workflow" , fig.id='fig2', label='fig2', fig.align='center', out.width='100%'}
+
+image_path <- "flowdiagram_1.png"
+
+include_graphics(image_path)
+
+```
+
+In Figure \@ref(fig:fig2), a hybrid approach that combines the hold-out method and validation method is adopted. The validation method is applied to a subset of the main dataset (which consists of approximately 3,800 observations) and used for hyperparameter optimization. As will be discussed in Section 2.1, the reduced subset demonstrates high accuracy compared to models trained on the full dataset, suggesting that additional data does not significantly enhance performance. However, performing cross-validation with parameter optimization using grid search techniques consumes considerable computing power. Hence, the reduced subset will be used for parameter optimization, and the fine-tuned hyperparameters will subsequently be applied to the main training model, which encompasses the full dataset. The model will then finally be evaluated on the test set. 
+
+## Data subset selection
+To ensure consistency between the subset model and the full model, it is important to select a large enough subset for the training process and to achieve a reasonable level of accuracy using the subset data. In this regard, simple Neural Network (NN) and Support Vector Machine (SVM) models will be fitted against the different datasets using various subset percentages. The accuracy scores based on the test set will then be recorded.
+
+The NN model, implemented using the h2o package, incorporates the following parameters:
+
+* Hidden layers and neurons: A single layer with 200 neurons.
+* L1 regularization: $\lambda$ = 1e-7.
+* Epochs: 10.
+
+On the other hand, the SVM model, utilizing the Caret package, includes the following parameters:
+
+* Kernel: Polynomial, with a degree of 2.
+* Cost: 1.
+
+As depicted in the figure below, a subset of 20% from the full dataset yields a remarkably high accuracy. Therefore, this 20% subset will be employed for the cross-validation hyperparameter tuning process. 
+
+```{r q2c3, echo= FALSE, fig.cap="Accuracy vs subset percentage of dataset. (Right) Neural network model, (Left) support vector machine model" , fig.id='fig3', label='fig3', fig.align='center', out.width='100%', eval = TRUE}
+
+###FOR CODE REFER TO THE FOLLOWING FILE: 
+###Assignment 3_subsetFigure_r3.R
+
+#code excluded and image imported - due to long simulation time
+image_path <- "subset.png"
+
+include_graphics(image_path)
+
+```
+
+# Neural Network Model
+Neural networks (NN) is a supervised learning algorithm that aims at mimicking the functioning of the human brain. They consist of interconnected artificial neurons that process and learn from data to make predictions or classify information. Neural networks excel at handling complex and non-linear relationships in data, making them widely used in various domains.
+
+In this investigation, we will utilize the h2o package to develop and train our neural network models. Among the available neural network packages, h2o stands out for its exceptional speed and efficiency. It leverages distributed computing capabilities, allowing for parallel processing and optimized memory management. As a result, h2o achieves faster training and prediction times, making it ideal for handling large-scale datasets and computationally intensive tasks. 
+
+## Hyperparameter selection via cross-validation
+To maximize model performance, an important step is to fine-tune the hyperparameters of the neural network model. In this study, a 20% subset of the dataset is utilized for cross-validation to select the optimal hyperparameters. 5 folds will be used. The cross-validation will involve splitting the subset into training and validation sets, training the model with different hyperparameter configurations, and evaluating the performance based on accuracy.
+
+A grid search will be used to select the optimal hyperparameters, of which will include:
+
+* Neurons: 1 layer with 50, 100 and 200 neurons, and 2 layers with 50, 100 and 200 neurons in each layer. 
+* L1 regularization: $\lambda$ taken as 1e-3 and 1e-5. 
+
+Epoch will be taken as a fixed value of 10 (as it was found to produce good results). The figure below, highlights the variation in performance for the different hyperparameters. 
+
+```{r qnn1, echo= FALSE, message = FALSE, warning = FALSE, fig.cap="Cross-validation accuracy results, with hyperparameter search grid on L1 regularization penalty factor and neurons" , fig.id='fig4', label='fig4', fig.align='center', out.width='90%'}
+
+###FOR CODE REFER TO THE FOLLOWING FILE: 
+###Assignment 3_nn_r3.R
+
+#code excluded and image imported - due to long simulation time
+image_path <- "NNcv.png"
+
+include_graphics(image_path)
+
+```
+
+As shown, the optimal model contains the following hyperparameters:
+
+* 2 layer with 200 neurons each.
+* $\lambda$ as 1e-5
+
+
+## Full neural network model
+The optimal hyperparameters, determined using a subset of the dataset, will be used in the main training model. The main training model employs the holdout method and is trained on the full training dataset. The model's performance on the test set is evaluated using metrics such as accuracy, recall (sensitivity), specificity, and precision. These metrics provide an assessment of the model's ability to correctly classify instances in the test set. 
+
+As shown in the table below, the model achieves a high accuracy, indicating excellent performance. This implies that the model has successfully classified a large proportion of instances correctly.
+```{r qnn2, echo= FALSE, include = FALSE}
+
+# Start the H2O cluster
+invisible({
+ h2o.init(nthreads = -1)
+})
+
+
+# Read the dataset into H2O
+data <- h2o.importFile("train_new.csv")
+
+# Specify the response and predictor variables
+response <- 1  # Assuming the first column is the response variable
+predictors <- 2:ncol(data)  # Assuming the predictor columns start from the second column
+
+# Convert the response variable to a factor
+data[, response] <- as.factor(data[, response])
+
+#train model on full dataset using optimal hyperparams
+
+# Split the data into training and testing sets
+set.seed(1)
+splitFull <- h2o.splitFrame(data, ratios = c(0.8, 0.19999999), seed = 1)
+
+trainFull <- splitFull[[1]]
+testFull <- splitFull[[2]]
+
+set.seed(1)
+model_full <- h2o.deeplearning(
+  x = predictors,
+  y = response,
+  training_frame = trainFull,
+  activation = "rectifier",
+  variable_importances = FALSE,
+  loss = 'CrossEntropy',
+  hidden = c(200,200),
+  l1 = 1e-5,
+  epochs = 10, 
+  seed=1)
+
+
+#make predictions on the test set
+predictions <- h2o.predict(model_full, testFull)
+yhat <- as.factor(as.matrix(predictions$predict))
+
+yhat_factor <- factor(ifelse(yhat == "odd", 0, 1), levels = c("0", "1"))
+testFull_factor <- factor(ifelse(as.factor(as.matrix(testFull[,1])) == "odd", 0, 1), levels = c("0", "1"))
+
+# Create confusion matrix manually
+conf_matrix <- table(Actual = testFull_factor, Predicted = yhat_factor)
+
+# Calculate accuracy
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+
+precision <- conf_matrix[2, 2] / sum(conf_matrix[, 2])
+
+# Calculate recall (sensitivity)
+recall <- conf_matrix[2, 2] / sum(conf_matrix[2, ])
+
+# Calculate specificity
+specificity <- conf_matrix[1, 1] / sum(conf_matrix[1, ])
+
+resNN <- data.frame(
+  Accuracy = round(accuracy,4),
+  Precision = round(precision,4),
+  Recall = round(recall,4),
+  Specificity = round(specificity,4)
+)
+
+# Stop the H2O cluster
+h2o.shutdown()
+
+
+```
+
+```{r qnn3, echo= FALSE, message = FALSE, warning = FALSE, tab.cap="NN results showing accuracy, specifisity, precision and recall" , tab.id='tab1', label='tab1', tab.align='center'}
+
+ftf <- flextable(resNN) %>% 
+            align(align = "center", part = "all")
+
+FitFlextableToPage(ftf, pgwidth = 5)
+
+```
+
+# Support vector machines
+Support Vector Machines (SVM) are powerful machine learning algorithms widely used for classification and regression tasks. SVMs excel in handling complex datasets with non-linear relationships. They work by finding an optimal hyperplane that separates data points into different classes, maximizing the margin between the classes.
+
+In this investigation, the caret package will be utilized to train and evaluate the SVM models. Caret provides fast and efficient implementations of SVMs, making it a suitable choice for our analysis. Compared to the e1071 package, Caret offers improved speed and efficiency, enabling faster training and prediction times.
+
+The selection of kernal type and hyperparameter selection will be discussed in the sections top follow. 
+
+## Kernal selection
+The selection of the kernel type in Support Vector Machines (SVM) plays a vital role in achieving accurate classification. In this investigation, we will explore multiple kernel types, including linear, radial, polynomial, and sigmoid, to identify the one that best fits the underlying patterns in our data. The models will be run on 10% of the dataset, with an 80/20 split for training and test sets, respectively. 
+
+Based on the evaluation of different kernel types, the polynomial kernel stands out as the top performer among the models tested. It should also be noted that the other three kernel models took much longer to converge, resulting it lengthy computing times, compared to the polynomial model. This fast convergence of the polynomial model could suggest a compatible relationship with the data, which is highlighted in the test accuracy result. In contrast, the long convergence times of the other models may indicate that they are not suitable kernel types for the given data. Going forward, the polynomial kernel will be employed in the SVM models. 
+
+```{r qsv1, echo= FALSE, message = FALSE, include = FALSE}
+
+# Read the dataset
+data <- read.csv("train_new.csv")
+
+# Specify the response and predictor variables
+response <- 1  # Replace with your response variable column index
+predictors <- 2:ncol(data)
+
+# Convert the response variable to a factor
+data[, response] <- as.factor(data[, response])
+
+# Create a data frame for the predictors and response
+df <- data[, c(predictors, response)]
+
+# Split the data into training and test sets
+set.seed(1)
+df_sample_sub <- sample(1:nrow(df), 0.1*nrow(df))
+
+dfsub<- df[df_sample_sub, ]
+
+# Split the data into training and test sets
+set.seed(1)
+train_sample <- sample(1:nrow(dfsub), 0.8*nrow(dfsub))
+trainK <- dfsub[train_sample, ]
+testK <- dfsub[-train_sample, ]
+
+svm_lin = svm(evenodd ~.,
+                data = trainK,
+                type = 'C-classification',
+                kernel = "linear",
+                scale = F,
+                cost = 1)
+
+svm_rad = svm(evenodd ~.,
+              data = trainK,
+              type = 'C-classification',
+              kernel = "radial",
+              scale = F,
+              cost = 1,
+              gamma = 1)
+
+svm_pol = svm(evenodd ~.,
+                data = trainK,
+                type = 'C-classification',
+                kernel = "polynomial",
+                scale = F,
+                cost = 1,
+                degree = 2,
+                coef0 = 1)
+
+svm_sig <- svm(evenodd ~ .,
+                 data = trainK,
+                 type = 'C-classification',
+                 kernel = "sigmoid",
+                 scale = F,
+                 cost = 1,
+                 coef0 = 1,
+                 gamma = 1)
+
+# Predict the class labels for the test data
+predicted_lin <- predict(svm_lin, newdata = testK)
+predicted_rad <- predict(svm_rad, newdata = testK)
+predicted_pol <- predict(svm_pol, newdata = testK)
+predicted_sig <- predict(svm_sig, newdata = testK)
+
+# Calculate the misclassification rate
+
+resKernal <- data.frame(
+Linear = round(mean(predicted_lin == testK$evenodd),4), 
+Radial = round(mean(predicted_rad == testK$evenodd),4), 
+Polynomial = round(mean(predicted_pol == testK$evenodd),4), 
+Sigmoid = round(mean(predicted_sig == testK$evenodd),4)
+)
+
+
+```
+
+```{r qsv2, echo= FALSE, message = FALSE, warning = FALSE, tab.cap="Test accuracy using different SVM kernal functions" , tab.id='tab2', label='tab2', tab.align='center'}
+
+ftf <- flextable(resKernal) %>% 
+            align(align = "center", part = "all")
+
+FitFlextableToPage(ftf, pgwidth = 5)
+
+```
+
+## Hyperparameter selection via cross-validation
+The methodology for building SVM models will follow a systematic approach, similar to that for the NN model. Hyperparameter tuning will be performed on a subset of the dataset using cross-validation to identify the optimal set of hyperparameters. 5 folds will be used. These optimal hyperparameters will then be used to train the main SVM model on the full training dataset.
+
+A grid search will be used to select the optimal hyperparameters, of which will include:
+
+* Polynomial degree order: 2$^{nd}$, 3$^{rd}$ and 4$^{th}$ order polynomials will be tested. 
+* Cost: cost values of 0.01 and 10 be used.  
+
+```{r qsv3, echo= FALSE, message = FALSE, warning = FALSE, fig.cap="Cross-validation accuracy results, with hyperparameter search grid on cost and polynomial degree order" , fig.id='figS1', label='figS1', fig.align='center', out.width='90%'}
+
+###FOR CODE REFER TO THE FOLLOWING FILE: 
+###Assignment 3_svmPoly_r3.R
+
+#code excluded and image imported - due to long simulation time
+image_path <- "SVMcv.png"
+
+include_graphics(image_path)
+
+```
+
+It may be observed that the cost remains at a constant accuracy for all degree orders. This could be due to the fact that the data fits well to the data using the polynomial kernal, as discussed in the last section. The degree order however, is shown to affect the accuracy score of the model, with an optimal degree of 4 observed.   
+
+## Full support vector machine model
+As was done in the previous section, the fined tuned hyperparameters will now be applied to the full NN model which will be trained on the entire training dataset. The model will then be evaluated on its performance in classifying the test set. 
+
+As shown in the table below, the model achieves a high test accuracy, indicating that model fitted well to the data. In addition, it should be noted that the accuracies are on par with those shown in the NN section.  
+```{r qsv4, echo= FALSE, include = FALSE}
+
+#split full training set data
+set.seed(1)
+train_sample_full <- sample(1:nrow(df), 0.8*nrow(df))
+trainFull2 <- df[train_sample_full, ]
+testFull2 <- df[-train_sample_full, ]
+
+###FOR CODE REFER TO THE FOLLOWING FILE: 
+###Assignment 3_svmPoly_r3.R
+
+#load result - due to long simulation time
+load("best_model.RData")
+
+#predict on the test set
+yhatS <- predict(best_model, newdata = testFull2)
+
+
+# Create confusion matrix manually
+conf_matrixS <- table(Actual = testFull2$evenodd, Predicted = yhatS)
+
+# Calculate accuracy
+accuracyS <- sum(diag(conf_matrixS)) / sum(conf_matrixS)
+
+precisionS <- conf_matrixS[2, 2] / sum(conf_matrixS[, 2])
+
+# Calculate recall (sensitivity)
+recallS <- conf_matrixS[2, 2] / sum(conf_matrixS[2, ])
+
+# Calculate specificity
+specificityS <- conf_matrixS[1, 1] / sum(conf_matrixS[1, ])
+
+resSVM <- data.frame(
+  Accuracy = round(accuracyS,4),
+  Precision = round(precisionS,4),
+  Recall = round(recallS,4),
+  Specificity = round(specificityS,4)
+)
+
+```
+
+```{r qsv5, echo= FALSE, message = FALSE, warning = FALSE, tab.cap="SVM results showing test accuracy, specifisity, precision and recall" , tab.id='tab3', label='tab3', tab.align='center'}
+
+ftf <- flextable(resSVM) %>% 
+            align(align = "center", part = "all")
+
+FitFlextableToPage(ftf, pgwidth = 5)
+
+```
+
+# Discussion & conclusions
+The results from the NN and SVM models are summarized below:
+
+```{r qsv6, echo= FALSE, message = FALSE, warning = FALSE, tab.cap="NN and SVM results showing test accuracy, specifisity, precision and recall" , tab.id='tab4', label='tab4', tab.align='center'}
+
+resTotal <- rbind(resNN, resSVM)
+
+resTotal$Model <- c("NN", "SVM")
+
+resTotal <- resTotal[, c(ncol(resTotal), 1:(ncol(resTotal)-1))]
+
+ftf <- flextable(resTotal) %>% 
+            align(align = "center", part = "all")
+
+FitFlextableToPage(ftf, pgwidth = 5)
+
+```
+
+The results show that both the neural network (NN) and support vector machine (SVM) models perform similarly, with the NN model achieving a slightly higher accuracy score. The accuracy score for both models is notably high at 98%.
+
+Based on these findings, it can be concluded that both models effectively predict the outcome of the data with a high level of accuracy. However, the NN model outperforms the SVM model, making it the preferred choice in this scenario.
