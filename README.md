@@ -1,5 +1,5 @@
 # Project-1
-Machine learning mini projects
+Machine learning mini projects\
 View PDF for main document
 
 ### Project 1: Image Classification with SVM and NNs
