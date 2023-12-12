@@ -2,7 +2,7 @@
 Machine learning mini projects\
 View PDF for main document.
 
-### Project 1: Image Classification with SVM and NNs
+### Image Classification with SVM and NNs
 
 - Task: Classifying handwritten digits as even or odd.
 - Techniques: Explored Support Vector Machines (SVM) and Neural Networks (NNs) for accurate classification.
